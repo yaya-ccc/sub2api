@@ -126,6 +126,11 @@ describe('openCodeGo protocol rules', () => {
     expect(cnQuotaCellVisible('opencode_go', '')).toBe(true)
   })
 
+  it('locks zcode protocol to the official Zhipu endpoints per account mode', () => {
+    expect(defaultCNBaseUrl('zhipu', 'coding', 'zcode')).toBe('https://open.bigmodel.cn/api/coding/paas/v4')
+    expect(defaultCNBaseUrl('zhipu', 'payg', 'zcode')).toBe('https://open.bigmodel.cn/api/paas/v4')
+  })
+
   it('parses stored rules and skips invalid entries', () => {
     expect(parseOpenCodeGoProtocolRules(null)).toBeNull()
     expect(parseOpenCodeGoProtocolRules([])).toEqual([])

@@ -333,6 +333,9 @@ export default {
           anthropicDesc: '直通供应商原生 Anthropic 端点，零转换，适配 Claude Code。',
           responses: 'Responses',
           responsesDesc: '供应商原生 Responses 端点，适配 Codex。',
+          zcode: 'ZCode 渠道',
+          zcodeDesc: '智谱官方固定端点 + 客户端签名，被识别为 ZCode 渠道后可参与渠道专属计量优惠；签名失败自动降级为普通请求。',
+          zcodeLockedUrl: 'ZCode 渠道签名仅对智谱官方端点（open.bigmodel.cn）生效，地址已锁定。',
         },
         zhipuTeam: {
           title: '团队版组织 / 项目 ID',
@@ -349,10 +352,6 @@ export default {
             step4: '请求 URL 中 org- 开头的一段即组织 ID、proj_ 开头的一段即项目 ID（也可在 Request Headers 中查看 bigmodel-organization / bigmodel-project 的值），分别填入上方输入框。',
             example: '示例：…/organization/org-0610bE2D…/projects/proj_0798F20…/api_keys → org-0610bE2D… 填「组织 ID」，proj_0798F20… 填「项目 ID」',
           },
-        },
-        zcodeSigning: {
-          title: 'ZCode 渠道签名',
-          hint: '为出站请求附加 ZCode 客户端签名，被识别为 ZCode 渠道后可参与智谱渠道专属计量优惠；签名失败自动降级为普通请求',
         },
         balance: '余额 --',
         window5h: '5h',

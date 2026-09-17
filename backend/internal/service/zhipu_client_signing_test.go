@@ -120,19 +120,21 @@ func newZcodeHandshakeServer(t *testing.T, cipherB64 string) (*httptest.Server, 
 	return srv, capture
 }
 
-func newZcodeSigningTestAccount(id int64, credential string, enabled bool) *Account {
-	account := &Account{
+// newZcodeSigningTestAccount 构造 zhipu APIKey 账号；zcode=true 表示
+// api_protocol=zcode（签名协议档），否则为普通 chat_completions 档。
+func newZcodeSigningTestAccount(id int64, credential string, zcode bool) *Account {
+	protocol := APIProtocolChatCompletions
+	if zcode {
+		protocol = APIProtocolZcode
+	}
+	return &Account{
 		ID:          id,
 		Name:        "zhipu-zcode",
 		Platform:    PlatformZhipu,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
-		Credentials: map[string]any{"api_key": credential},
+		Credentials: map[string]any{"api_key": credential, "api_protocol": protocol},
 	}
-	if enabled {
-		account.Extra = map[string]any{zcodeSigningEnabledExtraKey: true}
-	}
-	return account
 }
 
 var zcodeHeaderKeys = []string{
@@ -167,7 +169,7 @@ func TestZcodeClientSigningFullChain(t *testing.T) {
 	account := newZcodeSigningTestAccount(101, credential, true)
 
 	header := http.Header{}
-	svc.applyZcodeClientSigning(context.Background(), account, header)
+	svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header)
 
 	// 握手请求形态：Authorization 为完整凭据，body 携带 apiKey/nonce/sig/ts，
 	// sig 为按服务端同款 KDF 计算的 HMAC。
@@ -213,7 +215,7 @@ func TestZcodeClientSigningFullChain(t *testing.T) {
 
 	// 第二次调用：会话 id 稳定，握手命中缓存不再请求。
 	header2 := http.Header{}
-	svc.applyZcodeClientSigning(context.Background(), account, header2)
+	svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header2)
 	require.Equal(t, sessionID, header2.Get("X-Session-Id"))
 	require.NotEqual(t, header2.Get("X-Client-Nonce"), nonce)
 	require.Equal(t, 1, doer.handshakeCount())
@@ -237,7 +239,7 @@ func TestZcodeClientSigningFailOpen(t *testing.T) {
 		})
 		account := newZcodeSigningTestAccount(111, "zcfail500-id.zcfail500-secret", true)
 		header := http.Header{}
-		svc.applyZcodeClientSigning(context.Background(), account, header)
+		svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header)
 		require.True(t, zcodeHasNoSigningHeaders(header))
 		require.Equal(t, 1, doer.handshakeCount())
 	})
@@ -249,7 +251,7 @@ func TestZcodeClientSigningFailOpen(t *testing.T) {
 		})
 		account := newZcodeSigningTestAccount(112, "zcfailcode-id.zcfailcode-secret", true)
 		header := http.Header{}
-		svc.applyZcodeClientSigning(context.Background(), account, header)
+		svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header)
 		require.True(t, zcodeHasNoSigningHeaders(header))
 	})
 
@@ -259,7 +261,7 @@ func TestZcodeClientSigningFailOpen(t *testing.T) {
 		})
 		account := newZcodeSigningTestAccount(113, "no-dot-credential", true)
 		header := http.Header{}
-		svc.applyZcodeClientSigning(context.Background(), account, header)
+		svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header)
 		require.True(t, zcodeHasNoSigningHeaders(header))
 		require.Zero(t, doer.handshakeCount())
 	})
@@ -270,7 +272,7 @@ func TestZcodeClientSigningFailOpen(t *testing.T) {
 		})
 		account := newZcodeSigningTestAccount(114, "two.dot.credential", true)
 		header := http.Header{}
-		svc.applyZcodeClientSigning(context.Background(), account, header)
+		svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", header)
 		require.True(t, zcodeHasNoSigningHeaders(header))
 		require.Zero(t, doer.handshakeCount())
 	})
@@ -300,7 +302,7 @@ func TestZcodeHandshakeCacheUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			<-start
 			h := http.Header{}
-			svc.applyZcodeClientSigning(context.Background(), account, h)
+			svc.applyZcodeClientSigning(context.Background(), account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", h)
 			headers[i] = h
 		}(i)
 	}
@@ -348,42 +350,9 @@ func TestZcodeVerifyFailureHandling(t *testing.T) {
 	require.True(t, cached, "非 VERIFY 401 不应清除私钥缓存")
 }
 
-// TestNativeAnthropicZcodeSigningWiring 覆盖 Anthropic 出站组头点接线：
-// 开关开→签名头注入，开关关→不注入。
-func TestNativeAnthropicZcodeSigningWiring(t *testing.T) {
-
-	const apiKeyID = "zcwire-anthropic-id"
-	credential := apiKeyID + ".zcwire-anthropic-secret"
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	srv, _ := newZcodeHandshakeServer(t, buildZcodePrivateCipher(t, apiKeyID, "zcwire-anthropic-secret", priv))
-	defer zcodeSwapHandshakeURL(t, srv.URL)()
-
-	doer := &zcodeRoutingDoer{handshakeSrv: srv}
-	svc := &OpenAIGatewayService{httpUpstream: doer}
-	body := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"max_tokens":8}`)
-
-	newCtx := func() *gin.Context {
-		gin.SetMode(gin.TestMode)
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-		return c
-	}
-
-	enabled := newZcodeSigningTestAccount(140, credential, true)
-	req, _, err := svc.buildNativeAnthropicUpstreamRequest(context.Background(), newCtx(), enabled, body, credential, "https://open.bigmodel.cn/api/anthropic/v1/messages")
-	require.NoError(t, err)
-	require.NotEmpty(t, req.Header.Get("X-Client-Sig"), "开关开时应注入签名头")
-	require.Equal(t, "zcode", req.Header.Get("X-App-Id"))
-
-	disabled := newZcodeSigningTestAccount(141, credential, false)
-	req2, _, err := svc.buildNativeAnthropicUpstreamRequest(context.Background(), newCtx(), disabled, body, credential, "https://open.bigmodel.cn/api/anthropic/v1/messages")
-	require.NoError(t, err)
-	require.True(t, zcodeHasNoSigningHeaders(req2.Header), "开关关时不应注入签名头")
-}
-
-// TestSendCCUpstreamRequestZcodeSigningWiring 覆盖 CC 出站组头点接线。
+// TestSendCCUpstreamRequestZcodeSigningWiring 覆盖 CC 出站组头点接线：
+// zcode 协议档 + 官方端点→注入签名头；官方端点 + 普通协议档→不注入；
+// zcode 协议档 + 非官方中转端点→域名守卫静默跳过。
 func TestSendCCUpstreamRequestZcodeSigningWiring(t *testing.T) {
 
 	const apiKeyID = "zcwire-cc-id"
@@ -397,18 +366,29 @@ func TestSendCCUpstreamRequestZcodeSigningWiring(t *testing.T) {
 	svc := &OpenAIGatewayService{httpUpstream: doer}
 	body := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}]}`)
 
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	send := func(account *Account, targetURL string) *http.Request {
+		gin.SetMode(gin.TestMode)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		resp, err := svc.sendCCUpstreamRequest(context.Background(), c, account, targetURL, body, false, credential, "", "")
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		return doer.dataReqs[len(doer.dataReqs)-1]
+	}
 
-	account := newZcodeSigningTestAccount(150, credential, true)
-	resp, err := svc.sendCCUpstreamRequest(context.Background(), c, account, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", body, false, credential, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, doer.dataReqs, 1)
-	require.NotEmpty(t, doer.dataReqs[0].Header.Get("X-Client-Sig"), "CC 出站请求应携带签名头")
-	require.Equal(t, "zcode", doer.dataReqs[0].Header.Get("X-App-Id"))
+	zcodeAccount := newZcodeSigningTestAccount(150, credential, true)
+	req := send(zcodeAccount, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions")
+	require.NotEmpty(t, req.Header.Get("X-Client-Sig"), "zcode 档官方端点应携带签名头")
+	require.Equal(t, "zcode", req.Header.Get("X-App-Id"))
+
+	plainAccount := newZcodeSigningTestAccount(151, credential, false)
+	reqPlain := send(plainAccount, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions")
+	require.True(t, zcodeHasNoSigningHeaders(reqPlain.Header), "普通协议档不应注入签名头")
+
+	relayAccount := newZcodeSigningTestAccount(152, credential, true)
+	reqRelay := send(relayAccount, "https://relay.example.com/v1/chat/completions")
+	require.True(t, zcodeHasNoSigningHeaders(reqRelay.Header), "非官方端点应被域名守卫跳过")
 }
 
 // TestZcodeParseSigningCredential 覆盖凭据解析边界。
@@ -426,28 +406,40 @@ func TestZcodeParseSigningCredential(t *testing.T) {
 	}
 }
 
-// TestIsZcodeSigningEnabled 覆盖账号开关守卫矩阵。
+// TestIsZcodeSigningEnabled 覆盖协议档守卫矩阵：仅 zhipu + APIKey +
+// api_protocol=zcode 生效。
 func TestIsZcodeSigningEnabled(t *testing.T) {
 	t.Parallel()
 
 	require.True(t, (&Account{
 		Platform: PlatformZhipu, Type: AccountTypeAPIKey,
-		Extra: map[string]any{zcodeSigningEnabledExtraKey: true},
+		Credentials: map[string]any{"api_protocol": APIProtocolZcode},
 	}).IsZcodeSigningEnabled())
 	require.False(t, (&Account{
 		Platform: PlatformZhipu, Type: AccountTypeAPIKey,
-		Extra: map[string]any{zcodeSigningEnabledExtraKey: false},
+		Credentials: map[string]any{"api_protocol": APIProtocolChatCompletions},
 	}).IsZcodeSigningEnabled())
 	require.False(t, (&Account{
 		Platform: PlatformZhipu, Type: AccountTypeAPIKey,
 	}).IsZcodeSigningEnabled())
 	require.False(t, (&Account{
 		Platform: PlatformZhipu, Type: AccountTypeOAuth,
-		Extra: map[string]any{zcodeSigningEnabledExtraKey: true},
+		Credentials: map[string]any{"api_protocol": APIProtocolZcode},
 	}).IsZcodeSigningEnabled())
 	require.False(t, (&Account{
 		Platform: PlatformKimi, Type: AccountTypeAPIKey,
-		Extra: map[string]any{zcodeSigningEnabledExtraKey: true},
+		Credentials: map[string]any{"api_protocol": APIProtocolZcode},
 	}).IsZcodeSigningEnabled())
 	require.False(t, (*Account)(nil).IsZcodeSigningEnabled())
+}
+
+// TestIsZcodeSigningTarget 覆盖官方域名守卫。
+func TestIsZcodeSigningTarget(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, isZcodeSigningTarget("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"))
+	require.True(t, isZcodeSigningTarget("https://OPEN.BIGMODEL.CN/api/paas/v4/chat/completions"))
+	require.False(t, isZcodeSigningTarget("https://relay.example.com/v1/chat/completions"))
+	require.False(t, isZcodeSigningTarget("https://open.bigmodel.cn.evil.com/v1/chat/completions"))
+	require.False(t, isZcodeSigningTarget(""))
 }

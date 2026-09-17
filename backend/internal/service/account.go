@@ -1412,7 +1412,8 @@ func (a *Account) IsCodingPlan() bool {
 // GetAPIProtocol 返回国产供应商账号的上游 API 协议。存储于
 // credentials["api_protocol"]；缺失或与平台不匹配时回退 chat_completions
 // （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
-// Responses 端点，适配 Codex）；zhipu 无此端点。
+// Responses 端点，适配 Codex）；zhipu 无此端点。zcode 协议档仅 zhipu：官方固定
+// 端点 + ZCode 渠道签名（IsZcodeSigningEnabled）。
 func (a *Account) GetAPIProtocol() string {
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
@@ -1425,6 +1426,10 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolResponses:
 		if a.SupportsNativeCNResponses() {
 			return APIProtocolResponses
+		}
+	case APIProtocolZcode:
+		if a.Platform == PlatformZhipu {
+			return APIProtocolZcode
 		}
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions

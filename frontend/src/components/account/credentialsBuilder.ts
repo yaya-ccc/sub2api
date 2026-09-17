@@ -262,9 +262,15 @@ export type CnAccountMode = 'payg' | 'coding'
 export type OpenCodeAccountMode = 'zen' | 'go'
 export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
 
-/** deepseek / kimi / minimax 支持原生 responses；adaptive 会按入站协议选择原生端点。 */
-export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses'
-export type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive'>
+/** deepseek / kimi / minimax 支持原生 responses；adaptive 按入站协议选择原生端点；zcode 仅 zhipu（官方固定端点 + ZCode 渠道签名）。 */
+export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses' | 'zcode'
+/** adaptive 子协议（端点分档配置用）：排除 adaptive 与 zcode（zcode 是独立顶层档位）。 */
+export type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive' | 'zcode'>
+
+/** adaptive 与 zcode 是顶层档位，不是 adaptive 端点分档的键。 */
+export function isCnNativeApiProtocol(protocol: CnApiProtocol): protocol is CnNativeApiProtocol {
+  return protocol !== 'adaptive' && protocol !== 'zcode'
+}
 
 export function isCNProviderPlatform(platform: string): platform is CnProviderPlatform {
   return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax'

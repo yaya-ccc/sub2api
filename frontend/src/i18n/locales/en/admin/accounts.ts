@@ -130,6 +130,9 @@ export default {
           anthropicDesc: 'Native passthrough to the provider’s Anthropic endpoint — ideal for Claude Code.',
           responses: 'Responses',
           responsesDesc: 'Provider’s native Responses endpoint — ideal for Codex.',
+          zcode: 'ZCode channel',
+          zcodeDesc: 'Zhipu official fixed endpoint + client signing; requests are recognized as the ZCode channel and qualify for channel-exclusive metering perks. Signing failures fall back to plain requests automatically.',
+          zcodeLockedUrl: 'ZCode channel signing only applies to the official Zhipu endpoint (open.bigmodel.cn); the base URL is locked.',
         },
         zhipuTeam: {
           title: 'Team Plan Organization / Project ID',
@@ -146,10 +149,6 @@ export default {
             step4: 'In the request URL, the org-… segment is the Organization ID and the proj_… segment is the Project ID (also visible as the bigmodel-organization / bigmodel-project request headers). Fill them into the fields above.',
             example: 'Example: …/organization/org-0610bE2D…/projects/proj_0798F20…/api_keys → org-0610bE2D… goes into "Organization ID", proj_0798F20… into "Project ID"',
           },
-        },
-        zcodeSigning: {
-          title: 'ZCode channel signing',
-          hint: 'Attach ZCode client signatures to outgoing requests so Zhipu recognizes them as the ZCode channel and applies channel-exclusive metering perks; signing failures fall back to plain requests automatically',
         },
         balance: 'Balance --',
         window5h: '5h',

@@ -655,22 +655,6 @@
         </div>
         <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
       </div>
-
-      <!-- 智谱 ZCode 渠道签名：出站请求附加 V4 客户端签名头，被识别为 ZCode 渠道后可参与渠道专属计量优惠 -->
-      <div v-if="form.platform === 'zhipu'" class="mt-4 flex items-center justify-between gap-4">
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.cnProviders.zcodeSigning.title') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.cnProviders.zcodeSigning.hint') }}
-          </p>
-        </div>
-        <Toggle
-          v-model="zcodeSigningEnabled"
-          data-testid="zcode-signing-toggle"
-          :aria-label="t('admin.accounts.cnProviders.zcodeSigning.title')"
-        />
-      </div>
-
       <!-- Account Type Selection (Gemini) -->
       <div v-if="form.platform === 'gemini'">
         <div class="flex items-center justify-between">
@@ -1381,7 +1365,9 @@
             type="text"
             class="input"
             :placeholder="apiKeyBaseUrlPlaceholder"
+            :disabled="isZcodeProtocol"
           />
+          <p v-if="isZcodeProtocol" class="input-hint">{{ t('admin.accounts.cnProviders.apiProtocol.zcodeLockedUrl') }}</p>
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
             v-if="form.platform === 'grok'"
@@ -1389,7 +1375,7 @@
             @select="apiKeyBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNPlatform && !isOpenCodeGoPlatform"
+            v-if="isCNPlatform && !isOpenCodeGoPlatform && !isZcodeProtocol"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="accountMode"
@@ -4180,8 +4166,8 @@ const openCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const zhipuOrganization = ref('')
 const zhipuProject = ref('')
-// 智谱 ZCode 渠道签名开关，写入 extra（zcode_signing_enabled）
-const zcodeSigningEnabled = ref(false)
+// 智谱 ZCode 渠道档：官方固定端点 + 出站 V4 客户端签名（api_protocol=zcode）。
+const isZcodeProtocol = computed(() => form.platform === 'zhipu' && apiProtocol.value === 'zcode')
 const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   chat_completions: '',
   anthropic: '',
@@ -4205,7 +4191,8 @@ const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() =
   if (form.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
 })
-// 当前平台可选的协议档（responses 仅 deepseek / kimi）。
+// 当前平台可选的协议档（responses 仅 deepseek / kimi；zcode 仅 zhipu，
+// 官方固定端点 + ZCode 渠道签名）。
 const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
   const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
     { value: 'adaptive', labelKey: 'adaptive' },
@@ -4214,6 +4201,9 @@ const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: strin
   ]
   if (cnSupportsNativeResponses(form.platform)) {
     opts.push({ value: 'responses', labelKey: 'responses' })
+  }
+  if (form.platform === 'zhipu') {
+    opts.push({ value: 'zcode', labelKey: 'zcode' })
   }
   return opts
 })
@@ -5823,6 +5813,10 @@ const handleSubmit = async () => {
     if (apiProtocol.value !== 'adaptive' && resolvedCNBase) {
       credentials.base_url = resolvedCNBase
     }
+    // ZCode 档强制锁定官方固定端点：签名只对官方域名生效，忽略任何残留输入。
+    if (form.platform === 'zhipu' && apiProtocol.value === 'zcode') {
+      credentials.base_url = defaultCNBaseUrl('zhipu', currentOpenCodeOrCNMode(), 'zcode')
+    }
     // 智谱团队版 Coding Plan：组织/项目 ID 写入凭据（非空才写）
     if (form.platform === 'zhipu' && accountMode.value === 'coding') {
       if (zhipuOrganization.value.trim()) credentials.zhipu_organization = zhipuOrganization.value.trim()
@@ -5880,13 +5874,9 @@ const handleSubmit = async () => {
   if (!applyTempUnschedConfig(credentials)) {
     return
   }
-
   form.credentials = credentials
-  let extra = buildAnthropicExtra(buildOpenAIExtra())
-  // 智谱 ZCode 渠道签名：开启时写入 extra，后端据此为出站请求注入 V4 签名头
-  if (form.platform === 'zhipu' && zcodeSigningEnabled.value) {
-    extra = { ...(extra || {}), zcode_signing_enabled: true }
-  }
+  const extra = buildAnthropicExtra(buildOpenAIExtra())
+
 
   await doCreateAccount({
     ...form,

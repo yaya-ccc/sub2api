@@ -17,6 +17,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,12 +34,12 @@ import (
 // （如夜间畅用、150% 额度）只对签名请求生效，普通请求照常计量。
 // 任一环节失败一律 fail-open：仅记 Warn 不设头，绝不阻断请求。
 const (
-	// zcodeSigningEnabledExtraKey 是账号 extra 上的布尔开关，开启后数据面
-	// 出站请求注入 V4 签名头。
-	zcodeSigningEnabledExtraKey = "zcode_signing_enabled"
-	zcodeSignAppID              = "zcode"
-	zcodeSignClientVersion      = "3.11.2"
-	zcodeSignKDFSalt            = "WD_CLIENT_SIGN_KDF_SALT"
+	zcodeSignAppID         = "zcode"
+	zcodeSignClientVersion = "3.11.2"
+	zcodeSignKDFSalt       = "WD_CLIENT_SIGN_KDF_SALT"
+	// zcodeSignHost 是 ZCode 签名唯一支持的出站官方域名（对齐 omp zcode.ts
+	// 的 SIGN_ORIGIN）：签名只被官方识别，中转/自定义 base_url 不签名。
+	zcodeSignHost = "open.bigmodel.cn"
 	// zcodePowLeadingZeroBytes 是 PoW 难度：SHA-256 摘要首字节为 0（8 bit），
 	// 期望约 256 次哈希，毫秒级。
 	zcodePowLeadingZeroBytes = 1
@@ -61,12 +62,18 @@ var (
 	zcodeSessionID = sync.OnceValue(func() string { return randomHex(zcodeNonceHexLen / 2) })
 )
 
-// IsZcodeSigningEnabled 判断 zhipu API Key 账号是否启用 ZCode 渠道签名。
-// 守卫：仅 PlatformZhipu + AccountTypeAPIKey；不按 account_mode 限制
-// （coding/payg 均可开启，由运营者自决）。
+// IsZcodeSigningEnabled 判断 zhipu API Key 账号是否处于 ZCode 渠道签名
+// 协议档（api_protocol=zcode）。该档位绑定智谱官方固定端点（前端锁定
+// base_url，出站另有域名守卫），coding/payg 模式均可选用。
 func (a *Account) IsZcodeSigningEnabled() bool {
 	return a != nil && a.Platform == PlatformZhipu && a.Type == AccountTypeAPIKey &&
-		a.getExtraBool(zcodeSigningEnabledExtraKey)
+		a.GetAPIProtocol() == APIProtocolZcode
+}
+
+// isZcodeSigningTarget 报告本次出站目标是否 ZCode 签名唯一支持的官方域名。
+func isZcodeSigningTarget(targetURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(targetURL))
+	return err == nil && strings.EqualFold(u.Hostname(), zcodeSignHost)
 }
 
 // zcodeParseSigningCredential 解析 `<id>.<secret>` 形式的智谱凭据；
@@ -256,10 +263,15 @@ func zcodeSolvePow(apiKeyID, ts string) (string, error) {
 }
 
 // applyZcodeClientSigning 为 zhipu 账号出站请求注入 ZCode V4 客户端签名头。
-// 任一环节失败：记 slog.Warn 并整体不设头（fail-open，对齐 ZCode 桌面端
-// 语义），绝不返回 error 阻断请求。凭据取 GetOpenAIProtocolAPIKey，与数据面
-// Authorization 同源。
-func (s *OpenAIGatewayService) applyZcodeClientSigning(ctx context.Context, account *Account, header http.Header) {
+// 仅当出站目标为官方固定域名（open.bigmodel.cn）时签名，其余（中转/自定义
+// base_url）静默跳过。任一环节失败：记 slog.Warn 并整体不设头（fail-open，
+// 对齐 ZCode 桌面端语义），绝不返回 error 阻断请求。凭据取
+// GetOpenAIProtocolAPIKey，与数据面 Authorization 同源。
+func (s *OpenAIGatewayService) applyZcodeClientSigning(ctx context.Context, account *Account, targetURL string, header http.Header) {
+	if !isZcodeSigningTarget(targetURL) {
+		slog.Warn("zcode_sign_skip_non_official_target", "account_id", account.ID, "target", targetURL)
+		return
+	}
 	credential := account.GetOpenAIProtocolAPIKey()
 	apiKeyID, _, ok := zcodeParseSigningCredential(credential)
 	if !ok {

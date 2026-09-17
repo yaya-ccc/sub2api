@@ -34,6 +34,7 @@
             v-model="editBaseUrl"
             type="text"
             class="input"
+            :disabled="isZcodeEditProtocol"
             :placeholder="
               account.platform === 'openai'
                 ? 'https://api.openai.com'
@@ -46,6 +47,7 @@
                       : 'https://api.anthropic.com'
             "
           />
+          <p v-if="isZcodeEditProtocol" class="input-hint">{{ t('admin.accounts.cnProviders.apiProtocol.zcodeLockedUrl') }}</p>
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
             v-if="account.platform === 'grok'"
@@ -53,7 +55,7 @@
             @select="editBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNApiKeyAccount && account.platform !== 'opencode_go'"
+            v-if="isCNApiKeyAccount && account.platform !== 'opencode_go' && !isZcodeEditProtocol"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="editAccountMode"
@@ -203,21 +205,6 @@
             </div>
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
-        </div>
-
-        <!-- 智谱 ZCode 渠道签名：出站请求附加 V4 客户端签名头，被识别为 ZCode 渠道后可参与渠道专属计量优惠 -->
-        <div v-if="isCNApiKeyAccount && account.platform === 'zhipu'" class="flex items-center justify-between gap-4">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.cnProviders.zcodeSigning.title') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.cnProviders.zcodeSigning.hint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="editZcodeSigningEnabled"
-            data-testid="zcode-signing-toggle-edit"
-            :aria-label="t('admin.accounts.cnProviders.zcodeSigning.title')"
-          />
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -3089,6 +3076,7 @@ import {
   cnSupportsNativeResponses,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
+  isCnNativeApiProtocol,
   isCNProviderPlatform,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
@@ -3229,8 +3217,10 @@ function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const editZhipuOrganization = ref('')
 const editZhipuProject = ref('')
-// 智谱 ZCode 渠道签名开关，写入 extra（zcode_signing_enabled）
-const editZcodeSigningEnabled = ref(false)
+// 智谱 ZCode 渠道档：官方固定端点 + 出站 V4 客户端签名（api_protocol=zcode）。
+const isZcodeEditProtocol = computed(
+  () => isCNApiKeyAccount.value && props.account?.platform === 'zhipu' && editApiProtocol.value === 'zcode'
+)
 const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   chat_completions: '',
   anthropic: '',
@@ -3262,6 +3252,9 @@ const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: strin
   if (cnSupportsNativeResponses(props.account?.platform ?? '')) {
     opts.push({ value: 'responses', labelKey: 'responses' })
   }
+  if (props.account?.platform === 'zhipu') {
+    opts.push({ value: 'zcode', labelKey: 'zcode' })
+  }
   return opts
 })
 const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() => {
@@ -3279,15 +3272,20 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
     for (const item of editAdaptiveProtocolOptions.value) {
       if (!editAdaptiveBaseUrls.value[item.value]) editAdaptiveBaseUrls.value[item.value] = defaults[item.value]
     }
-    if (previousProtocol !== 'adaptive' && editBaseUrl.value.trim()) {
+    if (previousProtocol !== 'adaptive' && isCnNativeApiProtocol(previousProtocol) && editBaseUrl.value.trim()) {
       editAdaptiveBaseUrls.value[previousProtocol] = editBaseUrl.value.trim()
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
     return
   }
   if (previousProtocol === 'adaptive') {
-    editBaseUrl.value = editAdaptiveBaseUrls.value[protocol] ||
-      defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
+    if (isCnNativeApiProtocol(protocol)) {
+      editBaseUrl.value = editAdaptiveBaseUrls.value[protocol] ||
+        defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
+    } else {
+      // zcode 档不走 adaptive 端点表，直接回落官方固定端点。
+      editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
+    }
     return
   }
   editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
@@ -4011,7 +4009,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
-	editZcodeSigningEnabled.value = extra?.zcode_signing_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
@@ -4232,10 +4229,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         storedProtocol === 'adaptive' ||
         storedProtocol === 'chat_completions' ||
         storedProtocol === 'anthropic' ||
-        storedProtocol === 'responses'
+        storedProtocol === 'responses' ||
+        storedProtocol === 'zcode'
           ? storedProtocol
           : 'chat_completions'
       if (!cnSupportsNativeResponses(newAccount.platform) && editApiProtocol.value === 'responses') {
+        editApiProtocol.value = 'chat_completions'
+      }
+      if (editApiProtocol.value === 'zcode' && newAccount.platform !== 'zhipu') {
         editApiProtocol.value = 'chat_completions'
       }
       const adaptiveDefaults = defaultCNAdaptiveBaseUrls(newAccount.platform, currentOpenCodeOrCNMode())
@@ -5037,6 +5038,10 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.api_base_urls
         }
+        // ZCode 档强制锁定官方固定端点：签名只对官方域名生效，忽略任何残留输入。
+        if (props.account.platform === 'zhipu' && editApiProtocol.value === 'zcode') {
+          newCredentials.base_url = defaultCNBaseUrl('zhipu', currentOpenCodeOrCNMode(), 'zcode')
+        }
         if (props.account.platform === 'opencode_go') {
           applyOpenCodeGoProtocolRules(newCredentials, editOpenCodeGoProtocolRules.value, 'edit')
         }
@@ -5684,19 +5689,6 @@ const handleSubmit = async () => {
       }
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
-      updatePayload.extra = newExtra
-    }
-
-    // 智谱 ZCode 渠道签名开关写入 extra（set/delete，保持其余键不变）
-    if (props.account.platform === 'zhipu' && props.account.type === 'apikey') {
-      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
-        (props.account.extra as Record<string, unknown>) || {}
-      const newExtra: Record<string, unknown> = { ...currentExtra }
-      if (editZcodeSigningEnabled.value) {
-        newExtra.zcode_signing_enabled = true
-      } else {
-        delete newExtra.zcode_signing_enabled
-      }
       updatePayload.extra = newExtra
     }
 
