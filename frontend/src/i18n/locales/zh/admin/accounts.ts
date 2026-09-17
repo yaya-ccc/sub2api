@@ -350,6 +350,10 @@ export default {
             example: '示例：…/organization/org-0610bE2D…/projects/proj_0798F20…/api_keys → org-0610bE2D… 填「组织 ID」，proj_0798F20… 填「项目 ID」',
           },
         },
+        zcodeSigning: {
+          title: 'ZCode 渠道签名',
+          hint: '为出站请求附加 ZCode 客户端签名，被识别为 ZCode 渠道后可参与智谱渠道专属计量优惠；签名失败自动降级为普通请求',
+        },
         balance: '余额 --',
         window5h: '5h',
         windowWeekly: '7d',

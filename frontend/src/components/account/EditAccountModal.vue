@@ -204,6 +204,21 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
+
+        <!-- 智谱 ZCode 渠道签名：出站请求附加 V4 客户端签名头，被识别为 ZCode 渠道后可参与渠道专属计量优惠 -->
+        <div v-if="isCNApiKeyAccount && account.platform === 'zhipu'" class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.cnProviders.zcodeSigning.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.cnProviders.zcodeSigning.hint') }}
+            </p>
+          </div>
+          <Toggle
+            v-model="editZcodeSigningEnabled"
+            data-testid="zcode-signing-toggle-edit"
+            :aria-label="t('admin.accounts.cnProviders.zcodeSigning.title')"
+          />
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
@@ -3214,6 +3229,8 @@ function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const editZhipuOrganization = ref('')
 const editZhipuProject = ref('')
+// 智谱 ZCode 渠道签名开关，写入 extra（zcode_signing_enabled）
+const editZcodeSigningEnabled = ref(false)
 const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   chat_completions: '',
   anthropic: '',
@@ -3994,6 +4011,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
+	editZcodeSigningEnabled.value = extra?.zcode_signing_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
@@ -5666,6 +5684,19 @@ const handleSubmit = async () => {
       }
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
+      updatePayload.extra = newExtra
+    }
+
+    // 智谱 ZCode 渠道签名开关写入 extra（set/delete，保持其余键不变）
+    if (props.account.platform === 'zhipu' && props.account.type === 'apikey') {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (editZcodeSigningEnabled.value) {
+        newExtra.zcode_signing_enabled = true
+      } else {
+        delete newExtra.zcode_signing_enabled
+      }
       updatePayload.extra = newExtra
     }
 

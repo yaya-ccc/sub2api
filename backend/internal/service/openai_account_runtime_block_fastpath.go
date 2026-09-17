@@ -96,6 +96,14 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if account != nil && account.Platform == PlatformGrok && isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
+	// ZCode 渠道签名被拒（VERIFY_*）表示握手私钥失效而凭据仍有效：清缓存让
+	// 下一次请求重新握手自愈，账号保持可调度，本请求走正常 failover 换号。
+	if statusCode == http.StatusUnauthorized && account != nil &&
+		account.IsZcodeSigningEnabled() && zcodeVerifyFailure(responseBody) {
+		zcodeInvalidateSigningKey(account)
+		slog.Warn("zcode_sign_verify_failure_rehandshake_scheduled", "account_id", account.ID)
+		return false
+	}
 	// Any non-2xx upstream HTTP response means the model request was actually sent.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)

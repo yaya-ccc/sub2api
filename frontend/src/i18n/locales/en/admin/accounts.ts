@@ -147,6 +147,10 @@ export default {
             example: 'Example: …/organization/org-0610bE2D…/projects/proj_0798F20…/api_keys → org-0610bE2D… goes into "Organization ID", proj_0798F20… into "Project ID"',
           },
         },
+        zcodeSigning: {
+          title: 'ZCode channel signing',
+          hint: 'Attach ZCode client signatures to outgoing requests so Zhipu recognizes them as the ZCode channel and applies channel-exclusive metering perks; signing failures fall back to plain requests automatically',
+        },
         balance: 'Balance --',
         window5h: '5h',
         windowWeekly: '7d',
