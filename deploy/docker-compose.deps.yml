@@ -1,0 +1,62 @@
+# =============================================================================
+# Sub2API Docker Compose - 本地开发外部依赖
+# =============================================================================
+# 只启动 PostgreSQL 与 Redis，并暴露到宿主机回环地址，
+# 供在宿主机上直接 go run 后端、pnpm dev 前端的本地开发场景使用。
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.deps.yml up -d
+#
+# 凭据与 DEV_GUIDE.md 保持一致：user=sub2api password=sub2api dbname=sub2api，
+# Redis 无密码。端口仅绑定 127.0.0.1，避免暴露到局域网。
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sub2api-dev-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=sub2api
+      - POSTGRES_PASSWORD=sub2api
+      - POSTGRES_DB=sub2api
+      - TZ=Asia/Shanghai
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - sub2api_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sub2api -d sub2api"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    container_name: sub2api-dev-redis
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - sub2api_dev_redisdata:/data
+    command: >
+        sh -c '
+          redis-server \
+          --save 60 1 \
+          --appendonly yes \
+          --appendfsync everysec'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  sub2api_dev_pgdata:
+    driver: local
+  sub2api_dev_redisdata:
+    driver: local

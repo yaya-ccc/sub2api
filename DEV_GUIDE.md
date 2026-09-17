@@ -31,6 +31,32 @@
 | 端口 | 6379 |
 | 密码 | 无 |
 
+### macOS 本地一键启动（外部依赖走 Docker）
+
+PostgreSQL 与 Redis 用 Docker 起，后端 `go run`、前端 `pnpm dev` 在宿主机直接跑：
+
+```bash
+# 1. 外部依赖（PG 5432 / Redis 6379，仅绑定 127.0.0.1，凭据 sub2api/sub2api）
+docker compose -f deploy/docker-compose.deps.yml up -d
+
+# 2. 后端：首启用 AUTO_SETUP 从环境变量自动建库、建管理员并写 backend/data/config.yaml
+cd backend
+AUTO_SETUP=true DATA_DIR="$PWD/data" \
+DATABASE_HOST=127.0.0.1 DATABASE_PORT=5432 DATABASE_USER=sub2api \
+DATABASE_PASSWORD=sub2api DATABASE_DBNAME=sub2api DATABASE_SSLMODE=disable \
+REDIS_HOST=127.0.0.1 REDIS_PORT=6379 \
+SERVER_MODE=debug \
+ADMIN_EMAIL=admin@sub2api.local ADMIN_PASSWORD=<自定义密码> \
+JWT_SECRET=$(openssl rand -hex 32) \
+go run ./cmd/server/
+
+# 3. 前端：Vite 3000 端口，/api、/v1、/setup 代理到 localhost:8080
+cd frontend && pnpm install && pnpm dev
+```
+
+访问 http://localhost:3000（后端单独可访问 http://localhost:8080/health）。
+再次启动时第 2 步的环境变量可省略（配置已持久化在 `backend/data/config.yaml`，该目录被 gitignore）。
+
 ### 开发工具
 
 ```bash
