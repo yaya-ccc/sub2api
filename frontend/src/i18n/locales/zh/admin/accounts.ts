@@ -333,6 +333,9 @@ export default {
           anthropicDesc: '直通供应商原生 Anthropic 端点，零转换，适配 Claude Code。',
           responses: 'Responses',
           responsesDesc: '供应商原生 Responses 端点，适配 Codex。',
+          zcode: 'ZCode 渠道',
+          zcodeDesc: '智谱官方固定端点 + 客户端签名，被识别为 ZCode 渠道后可参与渠道专属计量优惠；签名失败自动降级为普通请求。',
+          zcodeLockedUrl: 'ZCode 渠道签名仅对智谱官方端点（open.bigmodel.cn）生效，地址已锁定。',
         },
         zhipuTeam: {
           title: '团队版组织 / 项目 ID',

@@ -130,6 +130,9 @@ export default {
           anthropicDesc: 'Native passthrough to the provider’s Anthropic endpoint — ideal for Claude Code.',
           responses: 'Responses',
           responsesDesc: 'Provider’s native Responses endpoint — ideal for Codex.',
+          zcode: 'ZCode channel',
+          zcodeDesc: 'Zhipu official fixed endpoint + client signing; requests are recognized as the ZCode channel and qualify for channel-exclusive metering perks. Signing failures fall back to plain requests automatically.',
+          zcodeLockedUrl: 'ZCode channel signing only applies to the official Zhipu endpoint (open.bigmodel.cn); the base URL is locked.',
         },
         zhipuTeam: {
           title: 'Team Plan Organization / Project ID',

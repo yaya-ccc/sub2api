@@ -362,7 +362,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
-		case APIProtocolChatCompletions:
+		case APIProtocolChatCompletions, APIProtocolZcode:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 		case APIProtocolAnthropic:
 			return s.testCNProviderAnthropicConnection(c, account, modelID)

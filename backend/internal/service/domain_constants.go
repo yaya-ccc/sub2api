@@ -68,6 +68,7 @@ const (
 	APIProtocolChatCompletions = domain.APIProtocolChatCompletions
 	APIProtocolAnthropic       = domain.APIProtocolAnthropic
 	APIProtocolResponses       = domain.APIProtocolResponses
+	APIProtocolZcode           = domain.APIProtocolZcode
 	APIProtocolAdaptive        = domain.APIProtocolAdaptive
 )
 
