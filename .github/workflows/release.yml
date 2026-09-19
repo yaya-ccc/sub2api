@@ -274,7 +274,9 @@ jobs:
 
   sync-version-file:
     needs: [release]
-    if: ${{ needs.release.result == 'success' }}
+    # 仅上游仓库回写 VERSION；个人 fork 的个人版本号（如 0.2.5-yaya.1）不写入 main，
+    # 避免与上游同步时产生 VERSION 冲突
+    if: ${{ needs.release.result == 'success' && github.repository == 'Wei-Shaw/sub2api' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout default branch
