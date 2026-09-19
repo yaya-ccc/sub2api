@@ -114,7 +114,7 @@ func newZcodeHandshakeServer(t *testing.T, cipherB64 string) (*httptest.Server, 
 		capture.authz = append(capture.authz, r.Header.Get("Authorization"))
 		capture.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"code":200,"data":{"privateCipher":%q}}`, cipherB64)))
+		_, _ = fmt.Fprintf(w, `{"code":200,"data":{"privateCipher":%q}}`, cipherB64)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, capture
@@ -186,7 +186,7 @@ func TestZcodeClientSigningFullChain(t *testing.T) {
 	hmacKey, err := zcodeDerive(apiKeySecret, "getSignKey_hmac")
 	require.NoError(t, err)
 	mac := hmac.New(sha256.New, hmacKey)
-	mac.Write([]byte("get_sign_key\n" + apiKeyID + "\n" + handshakeReq.Ts + "\n" + handshakeReq.Nonce))
+	_, _ = mac.Write([]byte("get_sign_key\n" + apiKeyID + "\n" + handshakeReq.Ts + "\n" + handshakeReq.Nonce))
 	require.Equal(t, base64.StdEncoding.EncodeToString(mac.Sum(nil)), handshakeReq.Sig)
 
 	// 7 个签名头齐全。
