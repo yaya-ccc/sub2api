@@ -124,7 +124,7 @@ func zcodeHandshake(
 		return nil, err
 	}
 	mac := hmac.New(sha256.New, hmacKey)
-	mac.Write([]byte("get_sign_key\n" + apiKeyID + "\n" + ts + "\n" + nonce))
+	_, _ = mac.Write([]byte("get_sign_key\n" + apiKeyID + "\n" + ts + "\n" + nonce))
 	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 	payload, err := json.Marshal(struct {
@@ -223,14 +223,18 @@ func zcodeEnsurePrivateKey(
 		return nil, errors.New("zcode credential is not <id>.<secret>")
 	}
 	if cached, ok := zcodePrivateKeys.Load(apiKeyID); ok {
-		return cached.(ed25519.PrivateKey), nil
+		if key, ok := cached.(ed25519.PrivateKey); ok {
+			return key, nil
+		}
 	}
 	hsCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), zcodeHandshakeTimeout)
 	defer cancel()
 	v, err, _ := zcodeHandshakeFlight.Do(apiKeyID, func() (any, error) {
 		// 跟随者再次查缓存：领导者完成到本次进入之间缓存可能已写入。
 		if cached, ok := zcodePrivateKeys.Load(apiKeyID); ok {
-			return cached.(ed25519.PrivateKey), nil
+			if key, ok := cached.(ed25519.PrivateKey); ok {
+				return key, nil
+			}
 		}
 		key, err := zcodeHandshake(hsCtx, doer, proxyURL, credential, apiKeyID, apiKeySecret, accountID, accountConcurrency)
 		if err != nil {
@@ -242,7 +246,11 @@ func zcodeEnsurePrivateKey(
 	if err != nil {
 		return nil, err
 	}
-	return v.(ed25519.PrivateKey), nil
+	key, ok := v.(ed25519.PrivateKey)
+	if !ok {
+		return nil, errors.New("zcode handshake returned unexpected key type")
+	}
+	return key, nil
 }
 
 // zcodeSolvePow 计算 ZCode PoW：SHA-256(apiKeyId\nzcode\nsessionId\nts) 的
